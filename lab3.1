@@ -1,0 +1,83 @@
+#include <Arduino.h>
+
+// Піни (перевір, чи так підключено на платі)
+const int btnReadLDR = 12; 
+const int btnCounter = 14; 
+const int ldrPin     = 34; 
+const int ledPin     = 2;  
+
+// Змінні для переривань
+volatile bool doReadLDR = false;
+volatile int pressCount = 0;
+volatile bool ledState  = false;
+volatile bool updateLED = false;
+
+// Параметри ШІМ
+const int freq = 5000;
+const int resolution = 8; 
+
+// --- Обробники переривань ---
+void IRAM_ATTR handleLDR() {
+  doReadLDR = true; 
+}
+
+void IRAM_ATTR handleCounter() {
+  pressCount++;
+  ledState = !ledState;
+  updateLED = true;
+}
+
+void setup() {
+  // Швидкість монітора (має збігатися в правому куті IDE)
+  Serial.begin(115200);
+  delay(1000); 
+  Serial.println("--- СИСТЕМА ЗАПУЩЕНА ---");
+  Serial.println("Натисніть Кнопку 1 для LDR або Кнопку 2 для лічильника");
+
+  pinMode(btnReadLDR, INPUT_PULLUP);
+  pinMode(btnCounter, INPUT_PULLUP);
+  
+  // Налаштування ШІМ (для версії 3.0+)
+  ledcAttach(ledPin, freq, resolution);
+
+  // Прив'язка переривань
+  attachInterrupt(digitalPinToInterrupt(btnReadLDR), handleLDR, RISING);
+  attachInterrupt(digitalPinToInterrupt(btnCounter), handleCounter, FALLING);
+}
+
+void loop() {
+  // Логіка Кнопки 1 (LDR)
+  if (doReadLDR) {
+    int ldrValue = analogRead(ldrPin);
+    Serial.print("Переривання 1: Значення LDR = ");
+    Serial.println(ldrValue);
+    
+    // Коротке мигнення після завершення
+    ledcWrite(ledPin, 255);
+    delay(200);
+    ledcWrite(ledPin, 0);
+    
+    doReadLDR = false;
+  }
+
+  // Логіка Кнопки 2 (Лічильник та яскравість)
+  if (updateLED) {
+    if (ledState) {
+      int brightness = (pressCount * 40) % 256; 
+      if (brightness < 10) brightness = 10;
+      
+      ledcWrite(ledPin, brightness);
+      Serial.print("Переривання 2: Натискань = ");
+      Serial.print(pressCount);
+      Serial.print(" | Стан: УВІМК | Яскравість: ");
+      Serial.println(brightness);
+    } else {
+      ledcWrite(ledPin, 0);
+      Serial.print("Переривання 2: Натискань = ");
+      Serial.print(pressCount);
+      Serial.println(" | Стан: ВИМКН");
+    }
+    updateLED = false;
+  }
+}
+
