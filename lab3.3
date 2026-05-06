@@ -1,0 +1,86 @@
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BMP280.h>
+
+// Визначення пінів
+#define LED_TIMER 4
+#define LED_BUTTON 5
+#define BUTTON_PIN 18
+
+Adafruit_BMP280 bmp; 
+
+// Змінні для таймера
+hw_timer_t * timer = NULL;
+volatile bool timerFlag = false;
+
+// Змінні для кнопки
+volatile unsigned long pressStartTime = 0;
+volatile unsigned long pressDuration = 0;
+volatile bool buttonReleased = false;
+
+// ISR для Таймера
+void IRAM_ATTR onTimer() {
+  timerFlag = true;
+}
+
+// ISR для Кнопки
+void IRAM_ATTR handleButtonInterrupt() {
+  int currentState = digitalRead(BUTTON_PIN);
+  
+  if (currentState == LOW) { // Кнопка натиснута (PULLUP)
+    pressStartTime = millis();
+  } else { // Кнопка відпущена
+    pressDuration = millis() - pressStartTime;
+    buttonReleased = true;
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_TIMER, OUTPUT);
+  pinMode(LED_BUTTON, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+  // Ініціалізація BMP280
+  if (!bmp.begin(0x76)) { 
+    Serial.println("Could not find a valid BMP280 sensor, check wiring!");
+  }
+
+  // Налаштування таймера (1 секунда)
+  timer = timerBegin(0, 80, true); 
+  timerAttachInterrupt(timer, &onTimer, true);
+  timerAlarmWrite(timer, 1000000, true); 
+  timerAlarmEnable(timer);
+
+  // Налаштування переривання по кнопці (CHANGE - реагує на натиск і відпуск)
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), handleButtonInterrupt, CHANGE);
+}
+
+void loop() {
+  // Обробка таймера
+  if (timerFlag) {
+    timerFlag = false;
+    
+    // Зчитування даних
+    float temp = bmp.readTemperature();
+    float pres = bmp.readPressure();
+    Serial.printf("Temp: %.2f *C, Press: %.2f Pa\n", temp, pres);
+    
+    // Промигнути діодом
+    digitalWrite(LED_TIMER, HIGH);
+    delay(100); 
+    digitalWrite(LED_TIMER, LOW);
+  }
+
+  // Обробка кнопки
+  if (buttonReleased) {
+    buttonReleased = false;
+    if (pressDuration > 50) { // Антибрязкіт
+      Serial.printf("Button held for: %lu ms\n", pressDuration);
+      
+      digitalWrite(LED_BUTTON, HIGH);
+      delay(pressDuration);
+      digitalWrite(LED_BUTTON, LOW);
+    }
+  }
+}
